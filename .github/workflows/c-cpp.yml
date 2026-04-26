@@ -1,0 +1,38 @@
+on:
+  push:
+    tags:
+      - 'v*' # Срабатывает при создании тегов, начинающихся с "v" (например, v1.0.0)
+
+# Выдаем права на создание релизов
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    # 1. Клонирование кода
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    # 2. Настройка окружения MSVC
+    - name: Setup MSVC Environment
+      uses: ilammy/msvc-dev-cmd@v1
+
+    # 3. Компиляция проекта
+    - name: Build project
+      run: |
+        rc resources.rc
+        cl /EHsc /O1 art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
+
+    # 4. Создание релиза и прикрепление exe-файла
+    - name: Create Release and Upload Asset
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: Art_RDP_Launcher.exe
+        name: Release ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true # Автоматически сгенерирует список изменений из коммитов
