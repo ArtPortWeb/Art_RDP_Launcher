@@ -115,6 +115,11 @@ static void Connect(HWND hWnd, int idx)
 
     const std::wstring& src = g_entries[idx].fullPath;
 
+    // Ensure we can overwrite: clear attributes and delete existing file
+    // Windows often marks Default.rdp as hidden/system, which causes CopyFile to fail with WinError 5.
+    SetFileAttributesW(g_defaultRdp.c_str(), FILE_ATTRIBUTE_NORMAL);
+    DeleteFileW(g_defaultRdp.c_str());
+
     BOOL ok = CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE);
     if (!ok) {
         DWORD err = GetLastError();
