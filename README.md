@@ -30,5 +30,5 @@
 ### MSVC (через Developer Command Prompt)
 ```cmd
 rc resources.rc
-cl /MT /EHsc /O1 /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /NXCOMPAT /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
+cl /MT /EHsc /O1 /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF
 ```
