@@ -29,11 +29,11 @@
 ### MSVC (через Developer Command Prompt)
 ```cmd
 rc resources.rc
-cl /EHsc /O1 art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
+cl /EHsc /O1 /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /NXCOMPAT /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
 ```
 
 ### MinGW
 ```bash
 windres resources.rc -O coff -o resources.res
-g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -mwindows -std=c++17
+g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -municode -mwindows -std=c++17 -Wl,--dynamicbase,--nxcompat,--high-entropy-va
 ```
