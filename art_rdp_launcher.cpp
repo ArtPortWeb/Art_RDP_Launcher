@@ -6,11 +6,11 @@
 
   Build (MSVC Developer Command Prompt):
     rc resources.rc
-    cl /EHsc /O1 /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /NXCOMPAT /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
+    cl /MT /EHsc /O1 /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /NXCOMPAT /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
 
   Build (MinGW):
     windres resources.rc -O coff -o resources.res
-    g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -municode -mwindows -std=c++17 -static-libstdc++ -static-libgcc -Wl,--dynamicbase,--nxcompat,--high-entropy-va
+    g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -municode -mwindows -std=c++17 -Wl,--dynamicbase,--nxcompat,--high-entropy-va
 */
 
 #define WIN32_LEAN_AND_MEAN
