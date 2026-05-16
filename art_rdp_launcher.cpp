@@ -6,11 +6,11 @@
 
   Build (MSVC Developer Command Prompt):
     rc resources.rc
-    cl /EHsc /O1 art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
+    cl /EHsc /O1 /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /NXCOMPAT /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
 
   Build (MinGW):
     windres resources.rc -O coff -o resources.res
-    g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -mwindows -std=c++17
+    g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -mwindows -std=c++17 -Wl,--dynamicbase,--nxcompat,--high-entropy-va
 */
 
 #define UNICODE
@@ -20,6 +20,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <commctrl.h>
+#include <cwchar>
 #include <string>
 #include <vector>
 #include <algorithm>
@@ -43,6 +44,9 @@
 static const wchar_t* RDP_SUBFOLDER = L"RDP_Connect";
 static const wchar_t* WND_CLASS     = L"RdpLauncherWnd";
 static const wchar_t* WND_TITLE     = L"ART RDP Launcher v" VERSION_STRING_W;
+
+static const int WND_WIDTH  = 392;
+static const int WND_HEIGHT = 358;
 
 // ---------------------------------------------------------------------------
 // Globals
@@ -115,16 +119,13 @@ static void Connect(HWND hWnd, int idx)
 
     const std::wstring& src = g_entries[idx].fullPath;
 
-    // Ensure we can overwrite: clear attributes and delete existing file
-    // Windows often marks Default.rdp as hidden/system, which causes CopyFile to fail with WinError 5.
-    SetFileAttributesW(g_defaultRdp.c_str(), FILE_ATTRIBUTE_NORMAL);
-    DeleteFileW(g_defaultRdp.c_str());
-
-    BOOL ok = CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE);
-    if (!ok) {
+    // MoveFileExW atomically copies and replaces — no need to manually clear attributes + delete
+    if (!MoveFileExW(src.c_str(), g_defaultRdp.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
+    {
         DWORD err = GetLastError();
         wchar_t msg[1024];
-        wsprintfW(msg,
+        swprintf_s(msg,
             L"Failed to copy file (WinError %lu).\n\nFrom:\n%s\n\nTo:\n%s",
             err, src.c_str(), g_defaultRdp.c_str());
         MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR);
@@ -286,7 +287,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         WS_EX_DLGMODALFRAME,
         WND_CLASS, WND_TITLE,
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 392, 358,
+        CW_USEDEFAULT, CW_USEDEFAULT, WND_WIDTH, WND_HEIGHT,
         NULL, NULL, hInst, NULL);
 
     if (!hWnd) return 1;
