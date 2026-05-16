@@ -119,11 +119,15 @@ static void Connect(HWND hWnd, int idx)
 
     const std::wstring& src = g_entries[idx].fullPath;
 
-    // MoveFileExW atomically copies and replaces — no need to manually clear attributes + delete
-    if (!MoveFileExW(src.c_str(), g_defaultRdp.c_str(),
-                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED))
+    // CopyFileW overwrites destination. If it fails with access denied
+    // (e.g. Default.rdp was left hidden/read-only by mstsc), clear attributes and retry.
+    if (!CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE))
     {
         DWORD err = GetLastError();
+        if (err == ERROR_ACCESS_DENIED) {
+            SetFileAttributesW(g_defaultRdp.c_str(), FILE_ATTRIBUTE_NORMAL);
+            if (CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE)) goto launched;
+        }
         wchar_t msg[1024];
         swprintf_s(msg,
             L"Failed to copy file (WinError %lu).\n\nFrom:\n%s\n\nTo:\n%s",
@@ -131,6 +135,8 @@ static void Connect(HWND hWnd, int idx)
         MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR);
         return;
     }
+
+launched:
 
     // Launch mstsc - it reads Default.rdp automatically
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
