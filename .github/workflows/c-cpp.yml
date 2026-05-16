@@ -22,9 +22,7 @@ jobs:
       with:
         msystem: UCRT64
         update: true
-        install: >-
-          mingw-w64-ucrt-x86_64-gcc
-          mingw-w64-ucrt-x86_64-windres
+        install: mingw-w64-ucrt-x86_64-gcc
 
     # 3. Компиляция проекта
     - name: Build project
