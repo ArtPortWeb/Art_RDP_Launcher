@@ -16,15 +16,24 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    # 2. Настройка окружения MSVC
-    - name: Setup MSVC Environment
-      uses: ilammy/msvc-dev-cmd@v1
+    # 2. Настройка окружения MinGW
+    - name: Setup MinGW
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: true
+        install: >-
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-windres
 
     # 3. Компиляция проекта
     - name: Build project
+      shell: msys2 {0}
       run: |
-        rc resources.rc
-        cl /EHsc /O1 art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows
+        windres resources.rc -O coff -o resources.res
+        g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res \
+          -lshell32 -lcomctl32 -luser32 -lgdi32 -mwindows -std=c++17 \
+          -Wl,--dynamicbase,--nxcompat,--high-entropy-va
 
     # 4. Создание релиза и прикрепление exe-файла
     - name: Create Release and Upload Asset
