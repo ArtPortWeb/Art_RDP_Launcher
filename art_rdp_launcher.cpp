@@ -142,9 +142,9 @@ static bool ImportRdpFile(HWND hWnd, const std::wstring& srcPath)
     // 4. Если файл с таким именем уже существует — спрашиваем
     if (GetFileAttributesW(dest.c_str()) != INVALID_FILE_ATTRIBUTES) {
         wchar_t msg[512];
-        swprintf_s(msg, L"Файл \"%s\" уже существует в RDP_Connect.\nПерезаписать?", fname);
+        swprintf_s(msg, L"File \"%s\" already exists in RDP_Connect.\nOverwrite?", fname);
         if (MessageBoxW(hWnd, msg, L"RDP Launcher - Import",
-                        MB_YESNO | MB_ICONQUESTION) != IDYES)
+                        MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND) != IDYES)
             return false;
     }
 
@@ -152,8 +152,8 @@ static bool ImportRdpFile(HWND hWnd, const std::wstring& srcPath)
     if (!CopyFileW(srcPath.c_str(), dest.c_str(), FALSE)) {
         DWORD err = GetLastError();
         wchar_t msg[512];
-        swprintf_s(msg, L"Ошибка копирования \"%s\" (WinError %lu).", fname, err);
-        MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR);
+        swprintf_s(msg, L"Error copying \"%s\" (WinError %lu).", fname, err);
+        MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
         return false;
     }
     return true;

@@ -20,13 +20,29 @@ jobs:
     - name: Setup MSVC Environment
       uses: ilammy/msvc-dev-cmd@v1
 
-    # 3. Компиляция проекта
+    # 3. Обновление version.h на основе тега (например, v1.0.3 -> 1, 0, 3)
+    - name: Update version.h from tag
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        $tag = "${{ github.ref_name }}"
+        if ($tag -match '^v?(\d+)\.(\d+)\.(\d+)') {
+            $major = $matches[1]
+            $minor = $matches[2]
+            $patch = $matches[3]
+            $content = Get-Content version.h
+            $content = $content -replace '^#define VERSION_MAJOR.*', "#define VERSION_MAJOR               $major"
+            $content = $content -replace '^#define VERSION_MINOR.*', "#define VERSION_MINOR               $minor"
+            $content = $content -replace '^#define VERSION_PATCH.*', "#define VERSION_PATCH               $patch"
+            Set-Content -Path version.h -Value $content
+        }
+
+    # 4. Компиляция проекта
     - name: Build project
       run: |
         rc resources.rc
-        cl /MT /EHsc /O1 /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF
+        cl /MT /EHsc /O1 /GS /W4 art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF
 
-    # 4. Создание релиза и прикрепление exe-файла
+    # 5. Создание релиза и прикрепление exe-файла
     - name: Create Release and Upload Asset
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2

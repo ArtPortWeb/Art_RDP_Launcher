@@ -1,17 +1,15 @@
 #ifndef VERSION_H
 #define VERSION_H
 
-#define VERSION_MAJOR               1
-#define VERSION_MINOR               0
-#define VERSION_PATCH               0
+#define VERSION_MAJOR 1
+#define VERSION_MINOR 0
+#define VERSION_PATCH 0
 
 #define STRINGIZE2(s) #s
 #define STRINGIZE(s) STRINGIZE2(s)
 
-#define VERSION_STRING \
-    STRINGIZE(VERSION_MAJOR) "." \
-    STRINGIZE(VERSION_MINOR) "." \
-    STRINGIZE(VERSION_PATCH)
+#define VERSION_STRING                                                         \
+  STRINGIZE(VERSION_MAJOR) "." STRINGIZE(VERSION_MINOR) "." STRINGIZE(VERSION_PATCH)
 
 #define VERSION_WSTRING2(s) L##s
 #define VERSION_WSTRING(s) VERSION_WSTRING2(s)
@@ -19,7 +17,6 @@
 #define VERSION_STRING_W VERSION_WSTRING(VERSION_STRING)
 
 // Для VERSIONINFO ресурсов (требуется 4 числа)
-#define VERSION_COMMA \
-    VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, 0
+#define VERSION_COMMA VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH, 0
 
 #endif // VERSION_H
