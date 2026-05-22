@@ -6,7 +6,7 @@
 
   Build (MSVC Developer Command Prompt):
     rc resources.rc
-    cl /MT /EHsc /O1 /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF
+    cl /W4 /MT /EHsc /O1 /GS art_rdp_launcher.cpp resources.res /FeArt_RDP_Launcher.exe /link /subsystem:windows /DYNAMICBASE /HIGHENTROPYVA /NXCOMPAT /GUARD:CF
 
   Build (MinGW):
     windres resources.rc -O coff -o resources.res
@@ -135,6 +135,7 @@ static bool ImportRdpFile(HWND hWnd, const std::wstring& srcPath)
     //    Динамические буферы — консистентно с B5 (long paths >260 символов).
     DWORD lenSrc = GetFullPathNameW(srcPath.c_str(), 0, NULL, NULL);
     DWORD lenDst = GetFullPathNameW(dest.c_str(), 0, NULL, NULL);
+    if (lenSrc == 0 || lenDst == 0) return false;
     std::wstring canonSrc(lenSrc - 1, L'\0'), canonDst(lenDst - 1, L'\0');
     GetFullPathNameW(srcPath.c_str(), lenSrc, &canonSrc[0], NULL);
     GetFullPathNameW(dest.c_str(), lenDst, &canonDst[0], NULL);
@@ -431,7 +432,9 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     // Center on screen
     RECT rc = {};
     GetWindowRect(hWnd, &rc);
-    HMONITOR hMon = MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    POINT cursor;
+    GetCursorPos(&cursor);
+    HMONITOR hMon = MonitorFromPoint(cursor, MONITOR_DEFAULTTOPRIMARY);
     MONITORINFO mi = { sizeof(mi) };
     GetMonitorInfoW(hMon, &mi);
     SetWindowPos(hWnd, NULL,
