@@ -10,7 +10,7 @@
 
   Build (MinGW):
     windres resources.rc -O coff -o resources.res
-    g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -mwindows -std=c++17 -Wl,--dynamicbase,--nxcompat,--high-entropy-va
+    g++ -o Art_RDP_Launcher.exe art_rdp_launcher.cpp resources.res -lshell32 -lcomctl32 -luser32 -lgdi32 -lole32 -mwindows -std=c++17 -Wl,--dynamicbase,--nxcompat,--high-entropy-va
 */
 
 #define UNICODE
@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <string_view>
 #include "version.h"
 
 #pragma comment(lib, "shell32.lib")
@@ -49,6 +50,8 @@ static const wchar_t* WND_TITLE     = L"ART RDP Launcher v" VERSION_STRING_W;
 static const int WND_WIDTH  = 392;
 static const int WND_HEIGHT = 358;
 
+static constexpr ULONG_PTR COPYDATA_RDPF = 0x52445046UL; // 'RDPF'
+
 // ---------------------------------------------------------------------------
 // Globals
 // ---------------------------------------------------------------------------
@@ -73,7 +76,8 @@ static void ScanFolder()
 {
     g_entries.clear();
 
-    std::wstring pattern = g_rdpFolder + L"\\*.rdp";
+    std::wstring base = g_rdpFolder + L"\\";
+    std::wstring pattern = base + L"*.rdp";
     WIN32_FIND_DATAW fd = {};
     HANDLE hFind = FindFirstFileW(pattern.c_str(), &fd);
     if (hFind == INVALID_HANDLE_VALUE) return;
@@ -82,7 +86,7 @@ static void ScanFolder()
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
         RdpEntry e;
         e.filename = fd.cFileName;
-        e.fullPath = g_rdpFolder + L"\\" + fd.cFileName;
+        e.fullPath = base + fd.cFileName;
         g_entries.push_back(e);
     } while (FindNextFileW(hFind, &fd));
 
@@ -102,10 +106,10 @@ static void PopulateList(HWND hList)
     SendMessageW(hList, LB_RESETCONTENT, 0, 0);
 
     for (auto& e : g_entries) {
-        std::wstring label = e.filename;
-        auto dot = label.rfind(L'.');
-        if (dot != std::wstring::npos) label.resize(dot);
-        SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)label.c_str());
+        std::wstring_view name = e.filename;
+        auto dot = name.rfind(L'.');
+        if (dot != std::wstring_view::npos) name = name.substr(0, dot);
+        SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)std::wstring(name).c_str());
     }
 
     if (!g_entries.empty())
@@ -132,7 +136,7 @@ static bool ImportRdpFile(HWND hWnd, const std::wstring& srcPath)
     //    Динамические буферы — консистентно с B5 (long paths >260 символов).
     DWORD lenSrc = GetFullPathNameW(srcPath.c_str(), 0, NULL, NULL);
     DWORD lenDst = GetFullPathNameW(dest.c_str(), 0, NULL, NULL);
-    std::wstring canonSrc(lenSrc, L'\0'), canonDst(lenDst, L'\0');
+    std::wstring canonSrc(lenSrc - 1, L'\0'), canonDst(lenDst - 1, L'\0');
     GetFullPathNameW(srcPath.c_str(), lenSrc, &canonSrc[0], NULL);
     GetFullPathNameW(dest.c_str(), lenDst, &canonDst[0], NULL);
     if (CompareStringOrdinal(canonSrc.c_str(), -1, canonDst.c_str(), -1, TRUE) == CSTR_EQUAL) {
@@ -196,7 +200,7 @@ static void Connect(HWND hWnd, int idx)
         swprintf_s(msg,
             L"Failed to copy file (WinError %lu).\n\nFrom:\n%s\n\nTo:\n%s",
             err, src.c_str(), g_defaultRdp.c_str());
-        MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR);
+        MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
         return;
     }
 
@@ -208,7 +212,7 @@ static void Connect(HWND hWnd, int idx)
     sei.nShow = SW_SHOWNORMAL;
 
     if (!ShellExecuteExW(&sei)) {
-        MessageBoxW(hWnd, L"Failed to launch mstsc.exe", L"RDP Launcher - Error", MB_ICONERROR);
+        MessageBoxW(hWnd, L"Failed to launch mstsc.exe", L"RDP Launcher - Error", MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND);
         return;
     }
 
@@ -280,7 +284,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
     case WM_COPYDATA:
     {
         COPYDATASTRUCT* cds = (COPYDATASTRUCT*)lParam;
-        if (!cds || cds->dwData != 0x52445046) // 'RDPF' magic
+        if (!cds || cds->dwData != COPYDATA_RDPF) // 'RDPF' magic
             return FALSE;
 
         // Валидация: минимальный размер, кратность sizeof(wchar_t), нуль-терминатор
@@ -366,7 +370,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
             if (argv) {
                 for (int i = 1; i < argc; ++i) {
                     COPYDATASTRUCT cds = {};
-                    cds.dwData = 0x52445046; // 'RDPF' magic
+                    cds.dwData = COPYDATA_RDPF; // 'RDPF' magic
                     cds.cbData = (DWORD)((wcslen(argv[i]) + 1) * sizeof(wchar_t));
                     cds.lpData = argv[i];
                     SendMessageW(hExisting, WM_COPYDATA, 0, (LPARAM)&cds);
@@ -413,7 +417,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     wc.lpszClassName = WND_CLASS;
     wc.hIcon         = g_hAppIcon;
     wc.hIconSm       = g_hAppIcon;
-    if (!RegisterClassExW(&wc)) return 1;
+    if (!RegisterClassExW(&wc)) { CloseHandle(hMutex); return 1; }
 
     // Create fixed-size dialog-like window
     HWND hWnd = CreateWindowExW(
@@ -423,15 +427,17 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         CW_USEDEFAULT, CW_USEDEFAULT, WND_WIDTH, WND_HEIGHT,
         NULL, NULL, hInst, NULL);
 
-    if (!hWnd) return 1;
+    if (!hWnd) { CloseHandle(hMutex); return 1; }
 
     // Center on screen
-    RECT rc = {}, rcScr = {};
+    RECT rc = {};
     GetWindowRect(hWnd, &rc);
-    GetWindowRect(GetDesktopWindow(), &rcScr);
+    HMONITOR hMon = MonitorFromPoint({0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi = { sizeof(mi) };
+    GetMonitorInfoW(hMon, &mi);
     SetWindowPos(hWnd, NULL,
-        (rcScr.right  - (rc.right  - rc.left)) / 2,
-        (rcScr.bottom - (rc.bottom - rc.top))  / 2,
+        mi.rcWork.left + (mi.rcWork.right  - mi.rcWork.left - (rc.right  - rc.left)) / 2,
+        mi.rcWork.top  + (mi.rcWork.bottom - mi.rcWork.top  - (rc.bottom - rc.top))  / 2,
         0, 0, SWP_NOSIZE | SWP_NOZORDER);
 
     ShowWindow(hWnd, SW_SHOW);
@@ -459,6 +465,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
         }
     }
     
+    // DestroyIcon(g_hAppIcon) is not needed as shared resources from LoadIconW are managed by the system.
     CloseHandle(hMutex);
     return 0;
 }
