@@ -30,6 +30,7 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "ole32.lib")
 
 // ---------------------------------------------------------------------------
 // IDs
@@ -54,6 +55,7 @@ static const int WND_HEIGHT = 358;
 static HWND g_hList   = NULL;
 static HWND g_hStatus = NULL;
 static HICON g_hAppIcon = NULL;
+static HFONT g_hFont = NULL;
 
 static std::wstring g_rdpFolder;
 static std::wstring g_defaultRdp;
@@ -111,6 +113,67 @@ static void PopulateList(HWND hList)
 }
 
 // ---------------------------------------------------------------------------
+// Import RDP file
+// ---------------------------------------------------------------------------
+static bool ImportRdpFile(HWND hWnd, const std::wstring& srcPath)
+{
+    // 1. Извлекаем имя файла
+    const wchar_t* fname = wcsrchr(srcPath.c_str(), L'\\');
+    if (!fname) fname = wcsrchr(srcPath.c_str(), L'/');
+    fname = fname ? fname + 1 : srcPath.c_str();
+
+    // 2. Проверяем расширение .rdp
+    const wchar_t* ext = wcsrchr(fname, L'.');
+    if (!ext || _wcsicmp(ext, L".rdp") != 0) return false;
+
+    std::wstring dest = g_rdpFolder + L"\\" + fname;
+
+    // 3. Детекция самокопирования: канонизируем оба пути и сравниваем.
+    //    Динамические буферы — консистентно с B5 (long paths >260 символов).
+    DWORD lenSrc = GetFullPathNameW(srcPath.c_str(), 0, NULL, NULL);
+    DWORD lenDst = GetFullPathNameW(dest.c_str(), 0, NULL, NULL);
+    std::wstring canonSrc(lenSrc, L'\0'), canonDst(lenDst, L'\0');
+    GetFullPathNameW(srcPath.c_str(), lenSrc, &canonSrc[0], NULL);
+    GetFullPathNameW(dest.c_str(), lenDst, &canonDst[0], NULL);
+    if (CompareStringOrdinal(canonSrc.c_str(), -1, canonDst.c_str(), -1, TRUE) == CSTR_EQUAL) {
+        return false;  // файл уже в целевой папке — пропускаем молча
+    }
+
+    // 4. Если файл с таким именем уже существует — спрашиваем
+    if (GetFileAttributesW(dest.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        wchar_t msg[512];
+        swprintf_s(msg, L"Файл \"%s\" уже существует в RDP_Connect.\nПерезаписать?", fname);
+        if (MessageBoxW(hWnd, msg, L"RDP Launcher - Import",
+                        MB_YESNO | MB_ICONQUESTION) != IDYES)
+            return false;
+    }
+
+    // 5. Копирование
+    if (!CopyFileW(srcPath.c_str(), dest.c_str(), FALSE)) {
+        DWORD err = GetLastError();
+        wchar_t msg[512];
+        swprintf_s(msg, L"Ошибка копирования \"%s\" (WinError %lu).", fname, err);
+        MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR);
+        return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Refresh list
+// ---------------------------------------------------------------------------
+static void RefreshList()
+{
+    ScanFolder();
+    if (g_hList)   PopulateList(g_hList);
+    if (g_hStatus) {
+        std::wstring status = g_rdpFolder + L"  (" +
+            std::to_wstring(g_entries.size()) + L" files)";
+        SetWindowTextW(g_hStatus, status.c_str());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Connect: copy rdp -> Default.rdp, launch mstsc
 // ---------------------------------------------------------------------------
 static void Connect(HWND hWnd, int idx)
@@ -121,13 +184,14 @@ static void Connect(HWND hWnd, int idx)
 
     // CopyFileW overwrites destination. If it fails with access denied
     // (e.g. Default.rdp was left hidden/read-only by mstsc), clear attributes and retry.
-    if (!CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE))
-    {
+    // CopyFileW returns 0 on failure. GetLastError() is valid only if !copied.
+    bool copied = CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE) != 0;
+    if (!copied && GetLastError() == ERROR_ACCESS_DENIED) {
+        SetFileAttributesW(g_defaultRdp.c_str(), FILE_ATTRIBUTE_NORMAL);
+        copied = CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE) != 0;
+    }
+    if (!copied) {
         DWORD err = GetLastError();
-        if (err == ERROR_ACCESS_DENIED) {
-            SetFileAttributesW(g_defaultRdp.c_str(), FILE_ATTRIBUTE_NORMAL);
-            if (CopyFileW(src.c_str(), g_defaultRdp.c_str(), FALSE)) goto launched;
-        }
         wchar_t msg[1024];
         swprintf_s(msg,
             L"Failed to copy file (WinError %lu).\n\nFrom:\n%s\n\nTo:\n%s",
@@ -135,8 +199,6 @@ static void Connect(HWND hWnd, int idx)
         MessageBoxW(hWnd, msg, L"RDP Launcher - Error", MB_ICONERROR);
         return;
     }
-
-launched:
 
     // Launch mstsc - it reads Default.rdp automatically
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
@@ -186,17 +248,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             16, 36, 340, 210,
             hWnd, (HMENU)IDC_LIST, NULL, NULL);
 
-        PopulateList(g_hList);
-
         // Status: show folder path + count
         g_hStatus = CreateWindowExW(0, L"STATIC", L"",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             16, 252, 340, 18,
             hWnd, (HMENU)IDC_STATUS, NULL, NULL);
 
-        std::wstring status = g_rdpFolder + L"  (" +
-            std::to_wstring(g_entries.size()) + L" files)";
-        SetWindowTextW(g_hStatus, status.c_str());
+        RefreshList();
 
         // Connect button
         CreateWindowExW(0, L"BUTTON", L"Connect",
@@ -211,9 +269,52 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
             hWnd, (HMENU)IDC_BTN_CANCEL, NULL, NULL);
 
         // Apply GUI font to all controls
-        HFONT hFont = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
-        EnumChildWindows(hWnd, SetFontProc, (LPARAM)hFont);
+        NONCLIENTMETRICSW ncm = { sizeof(ncm) };
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
+        g_hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        EnumChildWindows(hWnd, SetFontProc, (LPARAM)g_hFont);
 
+        break;
+    }
+
+    case WM_COPYDATA:
+    {
+        COPYDATASTRUCT* cds = (COPYDATASTRUCT*)lParam;
+        if (!cds || cds->dwData != 0x52445046) // 'RDPF' magic
+            return FALSE;
+
+        // Валидация: минимальный размер, кратность sizeof(wchar_t), нуль-терминатор
+        if (cds->cbData < sizeof(wchar_t))
+            return FALSE;
+        if (cds->cbData % sizeof(wchar_t) != 0)
+            return FALSE;
+        const wchar_t* raw = (const wchar_t*)cds->lpData;
+        size_t maxChars = cds->cbData / sizeof(wchar_t);
+        if (raw[maxChars - 1] != L'\0')
+            return FALSE;
+
+        std::wstring path(raw);
+        if (ImportRdpFile(hWnd, path))
+            RefreshList();
+
+        return TRUE;
+    }
+
+    case WM_DROPFILES:
+    {
+        HDROP hDrop = (HDROP)wParam;
+        UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, NULL, 0);
+        int imported = 0;
+        for (UINT i = 0; i < count; ++i) {
+            UINT len = DragQueryFileW(hDrop, i, NULL, 0);
+            std::wstring path(len, L'\0');
+            DragQueryFileW(hDrop, i, &path[0], len + 1);
+            if (ImportRdpFile(hWnd, path))
+                ++imported;
+        }
+        DragFinish(hDrop);
+        if (imported > 0)
+            RefreshList();
         break;
     }
 
@@ -222,7 +323,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         int ctrl  = LOWORD(wParam);
         int notif = HIWORD(wParam);
 
-        if (ctrl == IDC_BTN_CANCEL) {
+        if (ctrl == IDC_BTN_CANCEL || ctrl == IDCANCEL) {
             DestroyWindow(hWnd);
         }
         else if (ctrl == IDC_BTN_CONNECT ||
@@ -235,11 +336,11 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
         break;
     }
 
-    case WM_KEYDOWN:
-        if (wParam == VK_ESCAPE) DestroyWindow(hWnd);
-        break;
-
     case WM_DESTROY:
+        if (g_hFont) {
+            DeleteObject(g_hFont);
+            g_hFont = NULL;
+        }
         PostQuitMessage(0);
         break;
     }
@@ -252,23 +353,49 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPara
 // ---------------------------------------------------------------------------
 int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 {
+    HANDLE hMutex = CreateMutexW(NULL, FALSE, L"ArtSoft_RdpLauncher_SingleInstance");
+    if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        // Find and activate existing window
+        HWND hExisting = FindWindowW(WND_CLASS, NULL);
+        if (hExisting) {
+            SetForegroundWindow(hExisting);
+            if (IsIconic(hExisting)) ShowWindow(hExisting, SW_RESTORE);
+
+            int argc = 0;
+            LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+            if (argv) {
+                for (int i = 1; i < argc; ++i) {
+                    COPYDATASTRUCT cds = {};
+                    cds.dwData = 0x52445046; // 'RDPF' magic
+                    cds.cbData = (DWORD)((wcslen(argv[i]) + 1) * sizeof(wchar_t));
+                    cds.lpData = argv[i];
+                    SendMessageW(hExisting, WM_COPYDATA, 0, (LPARAM)&cds);
+                }
+                LocalFree(argv);
+            }
+        }
+        CloseHandle(hMutex);
+        return 0;
+    }
+
     INITCOMMONCONTROLSEX icc = { sizeof(icc), ICC_STANDARD_CLASSES };
     InitCommonControlsEx(&icc);
 
     // Resolve Documents path
-    wchar_t docs[MAX_PATH] = {};
-    if (FAILED(SHGetFolderPathW(NULL, CSIDL_PERSONAL, NULL, SHGFP_TYPE_CURRENT, docs))) {
+    PWSTR docsPath = nullptr;
+    HRESULT hr = SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &docsPath);
+    if (FAILED(hr)) {
         MessageBoxW(NULL, L"Cannot resolve Documents folder.", WND_TITLE, MB_ICONERROR);
+        CloseHandle(hMutex);
         return 1;
     }
 
-    g_rdpFolder  = std::wstring(docs) + L"\\" + RDP_SUBFOLDER;
-    g_defaultRdp = std::wstring(docs) + L"\\Default.rdp";
+    g_rdpFolder  = std::wstring(docsPath) + L"\\" + RDP_SUBFOLDER;
+    g_defaultRdp = std::wstring(docsPath) + L"\\Default.rdp";
+    CoTaskMemFree(docsPath);
 
     // Create RDP_Connect folder if it does not exist
     CreateDirectoryW(g_rdpFolder.c_str(), NULL);
-
-    ScanFolder();
 
     g_hAppIcon = LoadIconW(hInst, MAKEINTRESOURCEW(IDI_APP_ICON));
     if (!g_hAppIcon) {
@@ -290,7 +417,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
 
     // Create fixed-size dialog-like window
     HWND hWnd = CreateWindowExW(
-        WS_EX_DLGMODALFRAME,
+        WS_EX_DLGMODALFRAME | WS_EX_ACCEPTFILES,
         WND_CLASS, WND_TITLE,
         WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         CW_USEDEFAULT, CW_USEDEFAULT, WND_WIDTH, WND_HEIGHT,
@@ -310,10 +437,28 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int)
     ShowWindow(hWnd, SW_SHOW);
     UpdateWindow(hWnd);
 
+    // Обработка аргументов (drag на EXE)
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (argv) {
+        int imported = 0;
+        for (int i = 1; i < argc; ++i) {
+            if (ImportRdpFile(hWnd, argv[i]))
+                ++imported;
+        }
+        LocalFree(argv);
+        if (imported > 0)
+            RefreshList();
+    }
+
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+        if (!IsDialogMessageW(hWnd, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
     }
+    
+    CloseHandle(hMutex);
     return 0;
 }
