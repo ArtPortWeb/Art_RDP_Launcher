@@ -24,7 +24,6 @@
 #include <string>
 #include <vector>
 #include <algorithm>
-#include <string_view>
 #include "version.h"
 
 #pragma comment(lib, "shell32.lib")
@@ -66,6 +65,7 @@ static std::wstring g_defaultRdp;
 struct RdpEntry {
     std::wstring filename;
     std::wstring fullPath;
+    std::wstring displayName;
 };
 static std::vector<RdpEntry> g_entries;
 
@@ -87,6 +87,8 @@ static void ScanFolder()
         RdpEntry e;
         e.filename = fd.cFileName;
         e.fullPath = base + fd.cFileName;
+        auto dot = e.filename.rfind(L'.');
+        e.displayName = (dot != std::wstring::npos) ? e.filename.substr(0, dot) : e.filename;
         g_entries.push_back(e);
     } while (FindNextFileW(hFind, &fd));
 
@@ -106,10 +108,7 @@ static void PopulateList(HWND hList)
     SendMessageW(hList, LB_RESETCONTENT, 0, 0);
 
     for (auto& e : g_entries) {
-        std::wstring_view name = e.filename;
-        auto dot = name.rfind(L'.');
-        if (dot != std::wstring_view::npos) name = name.substr(0, dot);
-        SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)std::wstring(name).c_str());
+        SendMessageW(hList, LB_ADDSTRING, 0, (LPARAM)e.displayName.c_str());
     }
 
     if (!g_entries.empty())
